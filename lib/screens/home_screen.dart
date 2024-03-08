@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
+import 'package:provider/provider.dart';
+import '../logic/notifier.dart';
 import '../settings/app_setting.dart';
 import '../widgets/card_tag.dart';
 import '../widgets/custom_experience_card.dart';
@@ -15,28 +17,121 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  bool selected = false;
+  String selectedSection = 'ABOUT';
   bool isHover = false;
+  final _scrollController = ScrollController();
+  Map<String, double> sectionTops = {};
+  double _scrollThreshold = 50.0;
 
-  isHoverFunc() {
-    setState(() {
-      isHover = !isHover;
-    });
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _calculateSectionTops());
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void navigateToSection(String section) {
+    if (section != 'ABOUT') {
+      selectedSection = section;
+    }
+    final targetSectionTop = sectionTops[section] ?? 0.0; // Handle missing key
+    _scrollController.animateTo(
+      targetSectionTop,
+      duration: Duration(milliseconds: 800),
+      curve: Curves.ease,
+    );
+  }
+
+  void _calculateSectionTops() {
+    try {
+      final aboutSectionRenderBox = context.findRenderObject() as RenderBox?;
+      if (aboutSectionRenderBox != null) {
+        final aboutSectionTop =
+            aboutSectionRenderBox.localToGlobal(Offset.zero).dy;
+        sectionTops['ABOUT'] = aboutSectionTop;
+
+        // ... Repeat calculations for other sections
+
+        final experienceSectionTop =
+            sectionTops['ABOUT']! + (aboutSectionRenderBox.size.height);
+        sectionTops['EXPERIENCE'] = experienceSectionTop;
+
+        final projectsSectionTop = experienceSectionTop +
+            (aboutSectionRenderBox.size.height) +
+            // Add a small buffer (optional)
+            50.0;
+        sectionTops['PROJECTS'] = projectsSectionTop;
+
+        print('Section tops: $sectionTops'); // Debugging log
+      }
+    } catch (error) {
+      print('Error calculating section tops: $error');
+    }
+  }
+
+  void _onScroll() {
+    final currentSectionProvider =
+        Provider.of<CurrentSection>(context, listen: false); // (optional)
+
+    // Update selectedSection based on scroll position (optimized for PROJECTS)
+    final scrollOffset = _scrollController.offset;
+    String newSection = '';
+    for (var section in sectionTops.keys.toList().reversed) {
+      if (scrollOffset >= sectionTops[section]! - _scrollThreshold) {
+        newSection = section;
+        break;
+      }
+    }
+
+    // Update only if there's a change and handle edge cases
+    if (newSection != selectedSection) {
+      selectedSection = newSection;
+      currentSectionProvider.updateSection(selectedSection);
+      setState(() {});
+    }
+    setState(() {});
+    print('_scrollController.offset: ${scrollOffset}'); // Debugging log
+    print(
+        'sectionTops[PROJECTS]: ${sectionTops['PROJECTS'] ?? 0.0}'); // Debugging log
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Color(0xFF0F172A),
-      body: Container(
-        alignment: Alignment.center,
-        child: Wrap(
-          alignment: WrapAlignment.spaceBetween,
-          children: [
-            _buildLeftContainer(),
-            _buildRightContainer(isHoverFunc),
-          ],
-        ),
+      body: Row(
+        children: [
+          SizedBox(
+            width: 500,
+            child: ListView(
+              shrinkWrap: true,
+              physics: NeverScrollableScrollPhysics(),
+              children: [
+                _buildLeftContainer(),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              child: Container(
+                alignment: Alignment.center,
+                child: Wrap(
+                  children: [
+                    _buildRightContainer(navigateToSection),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -97,19 +192,19 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ),
         Gap(60),
-        _buildSectionTitle('ABOUT', selected),
+        _buildSectionTitle('ABOUT'),
         Gap(10),
-        _buildSectionTitle('EXPERIENCE', !selected),
+        _buildSectionTitle('EXPERIENCE'),
         Gap(10),
-        _buildSectionTitle('PROJECTS', selected),
+        _buildSectionTitle('PROJECTS'),
       ],
     );
   }
 
-  Widget _buildSectionTitle(String title, bool isSelected) {
+  Widget _buildSectionTitle(String title) {
     return Row(
       children: [
-        isSelected
+        selectedSection == title
             ? Container(
                 color: Color(0xFFC4D0EC),
                 width: 50,
@@ -121,12 +216,18 @@ class _MyHomePageState extends State<MyHomePage> {
                 height: 0.3,
               ),
         Gap(10),
-        Text(
-          title,
-          style: TextStyle(
-            color: isSelected ? Color(0xFFE2E8F0) : Color(0xFF7185AB),
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
+        InkWell(
+          // Make the title clickable for navigation
+          onTap: () => navigateToSection(title),
+          child: Text(
+            title,
+            style: TextStyle(
+              color: selectedSection == title
+                  ? Color(0xFFE2E8F0)
+                  : Color(0xFF7185AB),
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ],
@@ -180,19 +281,17 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget _buildRightContainer(onHover) {
     return Container(
       width: 600,
-      height: MediaQuery.of(context).size.height,
-      margin: EdgeInsets.all(10),
-      padding: const EdgeInsets.all(8.0),
-      child: ListView(
+      child: Column(
         children: [
           _buildExperienceText(),
-          Gap(20),
+          Gap(140),
           _buildCustomExperienceCard(),
           _buildCustomExperienceCard(),
-          Gap(40),
+          Gap(140),
           textWidget(onHover, isHover),
-          Gap(40),
+          Gap(400),
           _buildCustomProjectCard(),
+          Gap(200),
         ],
       ),
     );
@@ -200,8 +299,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Widget textWidget(onHover, iHover) => InkWell(
         onTap: () {
-          // Replace 'your_resume_url.pdf' with the actual URL or file path of your resume
-          html.window.open('your_resume_url.pdf', 'new tab');
+          html.window.open('assets/resume.pdf', 'new tab');
         },
         child: Row(
           children: [
